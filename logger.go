@@ -169,3 +169,6 @@ func Fatal(msg string, fields ...Field) { GetLogger().Fatal(msg, fields...) }
 
 // With returns a child of the singleton with pre-attached fields.
 func With(fields ...Field) *Logger { return GetLogger().With(fields...) }
+
+// UpdateLevel atomically changes the minimum log level of the singleton at runtime.
+func UpdateLevel(level Level) { GetLogger().UpdateLevel(level) }
