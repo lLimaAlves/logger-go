@@ -151,21 +151,27 @@ func (l *Logger) Fatal(msg string, fields ...Field) {
 // Package-level helpers (delegate to the singleton)
 // --------------------------------------------------------------------------
 
+// pkgLog returns a zap logger with one extra caller skip to account for the
+// package-level wrapper frame, so caller/function point to the user's code.
+func pkgLog() *zap.Logger {
+	return GetLogger().zap.WithOptions(zap.AddCallerSkip(1))
+}
+
 // Debug logs at debug level using the singleton logger.
-func Debug(msg string, fields ...Field) { GetLogger().Debug(msg, fields...) }
+func Debug(msg string, fields ...Field) { pkgLog().Debug(msg, fields...) }
 
 // Info logs at info level using the singleton logger.
-func Info(msg string, fields ...Field) { GetLogger().Info(msg, fields...) }
+func Info(msg string, fields ...Field) { pkgLog().Info(msg, fields...) }
 
 // Warn logs at warn level using the singleton logger.
-func Warn(msg string, fields ...Field) { GetLogger().Warn(msg, fields...) }
+func Warn(msg string, fields ...Field) { pkgLog().Warn(msg, fields...) }
 
 // ErrorLog logs at error level using the singleton logger.
 // Named ErrorLog to avoid collision with the Error(err) Field constructor.
-func ErrorLog(msg string, fields ...Field) { GetLogger().Error(msg, fields...) }
+func ErrorLog(msg string, fields ...Field) { pkgLog().Error(msg, fields...) }
 
 // Fatal logs at fatal level using the singleton logger, then exits.
-func Fatal(msg string, fields ...Field) { GetLogger().Fatal(msg, fields...) }
+func Fatal(msg string, fields ...Field) { pkgLog().Fatal(msg, fields...) }
 
 // With returns a child of the singleton with pre-attached fields.
 func With(fields ...Field) *Logger { return GetLogger().With(fields...) }
