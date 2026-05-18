@@ -3,6 +3,8 @@ package logger
 import (
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -25,11 +27,15 @@ type Config struct {
 	// Env is added to every log record as the "env" field (optional).
 	// When empty it reads APP_ENV from the environment.
 	Env string
+	// Timezone controls the location used when formatting timestamps.
+	// Defaults to time.UTC when nil.
+	Timezone *time.Location
 }
 
 var (
-	global   *Logger
-	initOnce sync.Once
+	global         *Logger
+	globalOverride atomic.Pointer[Logger] // set by SetGlobal; takes priority over global
+	initOnce       sync.Once
 )
 
 // Init initialises the package-level singleton.
@@ -46,10 +52,27 @@ func Init(cfg Config) *Logger {
 // Call Init before any logging to use a custom config; a GetLogger call
 // that races Init will prevent Init from taking effect.
 func GetLogger() *Logger {
+	if p := globalOverride.Load(); p != nil {
+		return p
+	}
 	initOnce.Do(func() {
 		global = New(Config{Level: LevelInfo})
 	})
 	return global
+}
+
+// SetGlobal replaces the logger returned by GetLogger and the package-level
+// helpers. Primarily intended for testing; prefer Init for production use.
+func SetGlobal(l *Logger) { globalOverride.Store(l) }
+
+// ResetGlobal removes any override set by SetGlobal, restoring the singleton
+// returned by Init / GetLogger.
+func ResetGlobal() { globalOverride.Store(nil) }
+
+// NewFromZap wraps an existing *zap.Logger. Useful for testing or integrating
+// with code that already constructs its own zap instance.
+func NewFromZap(z *zap.Logger) *Logger {
+	return &Logger{zap: z, level: zap.NewAtomicLevelAt(zapcore.DebugLevel)}
 }
 
 // New builds a Logger from cfg. It never panics; fatal build errors call os.Exit(1).
@@ -63,9 +86,9 @@ func New(cfg Config) *Logger {
 
 	var enc zapcore.Encoder
 	if isDev {
-		enc = zapcore.NewConsoleEncoder(consoleEncoderConfig())
+		enc = zapcore.NewConsoleEncoder(consoleEncoderConfig(cfg.Timezone))
 	} else {
-		enc = zapcore.NewJSONEncoder(jsonEncoderConfig())
+		enc = zapcore.NewJSONEncoder(jsonEncoderConfig(cfg.Timezone))
 	}
 
 	atomicLevel := zap.NewAtomicLevelAt(cfg.Level.toZap())
@@ -151,10 +174,12 @@ func (l *Logger) Fatal(msg string, fields ...Field) {
 // Package-level helpers (delegate to the singleton)
 // --------------------------------------------------------------------------
 
-// pkgLog returns a zap logger with one extra caller skip to account for the
-// package-level wrapper frame, so caller/function point to the user's code.
+// pkgLog returns the underlying zap.Logger for use by package-level helpers.
+// The base logger already has AddCallerSkip(1), which skips exactly one wrapper
+// frame — whether that frame is a Logger method or a package-level function.
+// No additional skip is needed here.
 func pkgLog() *zap.Logger {
-	return GetLogger().zap.WithOptions(zap.AddCallerSkip(1))
+	return GetLogger().zap
 }
 
 // Debug logs at debug level using the singleton logger.
